@@ -109,13 +109,14 @@ class DaeExporter:
     class Vertex:
 
         def close_to(self, v):
-            if self.vertex - v.vertex.length() > CMP_EPSILON:
+            if (self.vertex - v.vertex).length > CMP_EPSILON:
                 return False
-            if self.normal - v.normal.length() > CMP_EPSILON:
+            if (self.normal - v.normal).length > CMP_EPSILON:
                 return False
-            if self.uv - v.uv.length() > CMP_EPSILON:
-                return False
-            if self.uv2 - v.uv2.length() > CMP_EPSILON:
+            for i in range(len(self.uv)):
+                if (self.uv[i] - v.uv[i]).length > CMP_EPSILON:
+                    return False
+            if (self.uv2 - v.uv2).length > CMP_EPSILON:
                 return False
 
             return True
@@ -125,17 +126,17 @@ class DaeExporter:
                    self.normal.y, self.normal.z)
             for t in self.uv:
                 tup = tup + (t.x, t.y)
-            if self.color is not None:
-                tup = tup + (self.color.x, self.color.y, self.color.z)
-            if self.tangent is not None:
-                tup = tup + (self.tangent.x, self.tangent.y, self.tangent.z)
-            if self.bitangent is not None:
-                tup = tup + (self.bitangent.x, self.bitangent.y,
-                             self.bitangent.z)
-            for t in self.bones:
-                tup = tup + (float(t), )
-            for t in self.weights:
-                tup = tup + (float(t), )
+            #if self.color is not None:
+                #tup = tup + (self.color.x, self.color.y, self.color.z)
+            #if self.tangent is not None:
+                #tup = tup + (self.tangent.x, self.tangent.y, self.tangent.z)
+            #if self.bitangent is not None:
+                #tup = tup + (self.bitangent.x, self.bitangent.y,
+                             #self.bitangent.z)
+            #for t in self.bones:
+                #tup = tup + (float(t), )
+            #for t in self.weights:
+                #tup = tup + (float(t), )
 
             return tup
 
@@ -395,6 +396,12 @@ class DaeExporter:
         self.material_cache[material] = matid
         return matid
 
+    basis_vertex_cache=[]
+    basis_loops_cache=[]
+    basis_uv_layers_cache=[]
+    basis_vertex_colors=[]
+    basis_vertex_map={}
+        
     def export_mesh(self, node, armature=None, skeyindex=-1, skel_source=None,
                     custom_name=None):
         mesh = node.data
@@ -450,10 +457,10 @@ class DaeExporter:
             self.writel(S_MORPH, 1, '<controller id="' + mid + '" name="">')
             # if ("skin_id" in morph_targets[0]):
             #    self.writel(S_MORPH, 2, '<morph source="#'+morph_targets[0][
-            #    "skin_id"]+'" method="NORMALIZED">')
+            #    "skin_id"]+'" method="RELATIVE">')
             # else:
             self.writel(S_MORPH, 2, '<morph source="#' +
-                        morph_targets[0]["id"] + '" method="NORMALIZED">')
+                        morph_targets[0]["id"] + '" method="RELATIVE">')
 
             self.writel(S_MORPH, 3, '<source id="' + mid + '-morph-targets">')
             self.writel(S_MORPH, 4, '<IDREF_array id="' + mid +
@@ -584,6 +591,9 @@ class DaeExporter:
             mesh.calc_normals_split()
             has_tangents = False
 
+        is_close=False
+        vertex_number=0
+
         for fi in range(len(mesh.polygons)):
             f = mesh.polygons[fi]
 
@@ -633,18 +643,47 @@ class DaeExporter:
                 v = self.Vertex()
                 v.vertex = Vector(mv.co)
 
-                for xt in mesh.uv_layers:
+                v_basis = self.Vertex()
+                if (skeyindex>0):
+                    v_basis.vertex = Vector(
+                        self.basis_vertex_cache[ml.vertex_index].co)
+
+                    # Disgard vertices too close to the basis
+                    is_close = v.close_to(v_basis)
+                    v.vertex -= v_basis.vertex
+
+                for uvi in range(len(mesh.uv_layers)):
+                    xt = mesh.uv_layers[uvi]
                     v.uv.append(Vector(xt.data[loop_index].uv))
+                    if (skeyindex > 0):
+                        xt_c = self.basis_uv_layers_cache[uvi]
+                        v_basis.uv.append(Vector(xt_c.data[loop_index].uv))
+                        v.uv[uvi] -= v_basis.uv[uvi]
 
                 if (has_colors):
                     v.color = Vector(
                         mesh.vertex_colors[0].data[loop_index].color)
+                    if (skeyindex > 0):
+                        v_basis.color = Vector(
+                            self.basis_vertex_colors[0].data[loop_index].color)
+                        v.color -= v_basis.color
 
                 v.normal = Vector(ml.normal)
+                if (skeyindex > 0):
+                    v_basis.normal = Vector(
+                        self.basis_loops_cache[loop_index].normal)
+                    v.normal -= v_basis.normal
 
                 if (has_tangents):
                     v.tangent = Vector(ml.tangent)
                     v.bitangent = Vector(ml.bitangent)
+                    if (skeyindex>0):
+                        v_basis.tangent = Vector(
+                            self.basis_loops_cache[loop_index].tangent)
+                        v.tangent -= v_basis.tangent
+                        v_basis.bitangent = Vector(
+                            self.basis_loops_cache[loop_index].bitangent)
+                        v.bitangent -= v_basis.bitangent
 
                     # if (armature):
                     #         v.vertex = node.matrix_world * v.vertex
@@ -682,21 +721,53 @@ class DaeExporter:
                         v.bones.append(0)
                         v.weights.append(1)
 
-                tup = v.get_tup()
-                idx = 0
-                # do not optmize if using shapekeys
-                if (skeyindex == -1 and tup in vertex_map):
-                    idx = vertex_map[tup]
+                if (skeyindex>0):
+                    if not (is_close):
+                        tup = v_basis.get_tup()
+                        idx = 0
+                        if (tup in self.basis_vertex_map):
+                            idx = self.basis_vertex_map[tup]
+                            
+                            add_entry=True
+                            
+                            for p in indices:
+                                for i in p:
+                                    if (i == idx):
+                                        add_entry = False
+                                        
+                            if (add_entry == True):
+                                vertices.append(v)
+                                vi.append(idx)
+                        else:
+                            self.operator.report({'ERROR'},'No valid matching index for shape key vertex.')
                 else:
-                    idx = len(vertices)
-                    vertices.append(v)
-                    vertex_map[tup] = idx
+                    tup = v.get_tup()
+                    idx = 0
+                    if (tup in vertex_map):
+                        idx = vertex_map[tup]
+                    else:
+                        idx = len(vertices)
+                        vertices.append(v)
+                        vertex_map[tup] = idx
 
-                vi.append(idx)
+                    vi.append(idx)
 
             if (len(vi) > 2):
                 # only triangles and above
                 indices.append(vi)
+            else:
+                #morph data, anything goes
+                if (skeyindex>0):
+                    if (len(vi) > 0):
+                        indices.append(vi)
+                        
+        # Store the mesh info for comparison with other shapekeys
+        if (skeyindex == 0):
+            self.basis_vertex_cache = mesh.vertices
+            self.basis_loops_cache = mesh.loops
+            self.basis_uv_layers_cache = mesh.uv_layers
+            self.basis_vertex_colors = mesh.vertex_colors
+            self.basis_vertex_map = vertex_map
 
         meshid = self.new_id("mesh")
         self.writel(S_GEOM, 1, '<geometry id="' + meshid +
@@ -844,24 +915,36 @@ class DaeExporter:
         self.writel(S_GEOM, 3, '</vertices>')
 
         prim_type = ""
-        if (triangulate):
-            prim_type = "triangles"
+        #If we are a morph track, everything is treated as arbitrary points
+        if (skeyindex > 0):
+            prim_type = "points"
         else:
-            prim_type = "polygons"
+            if (triangulate):
+                prim_type = "triangles"
+            else:
+                prim_type = "polygons"
 
         for m in surface_indices:
             indices = surface_indices[m]
             mat = materials[m]
 
+            if (skeyindex > 0):
+                index_count = 0
+                for p in indices:
+                    for i in p:
+                        index_count += 1
+            else:
+                index_count = int(len(indices))
+                
             if (mat is not None):
                 matref = self.new_id("trimat")
                 self.writel(S_GEOM, 3, '<' + prim_type + ' count="' + str(
-                    int(len(indices))) + '" material="' + matref +
+                    index_count) + '" material="' + matref +
                             '">')  # todo material
                 mat_assign.append((mat, matref))
             else:
                 self.writel(S_GEOM, 3, '<' + prim_type + ' count="' +
-                            str(int(len(indices))) + '">')  # todo material
+                            str(index_count) + '">')  # todo material
 
             self.writel(S_GEOM, 4, '<input semantic="VERTEX" source="#' +
                         meshid + '-vertices" offset="0"/>')
@@ -885,7 +968,8 @@ class DaeExporter:
                             '<input semantic="TEXBINORMAL" source="#' +
                             meshid + '-bitangents" offset="0"/>')
 
-            if (triangulate):
+            #Are we copying basis/standard geometry, or a shape key array?
+            if (skeyindex > 0):
                 int_values = "<p>"
                 for p in indices:
                     for i in p:
@@ -893,12 +977,20 @@ class DaeExporter:
                 int_values += " </p>"
                 self.writel(S_GEOM, 4, int_values)
             else:
-                for p in indices:
+                if (triangulate):
                     int_values = "<p>"
-                    for i in p:
-                        int_values += " {}".format(i)
+                    for p in indices:
+                        for i in p:
+                            int_values += " " + str(i)
                     int_values += " </p>"
                     self.writel(S_GEOM, 4, int_values)
+                else:
+                    for p in indices:
+                        int_values = "<p>"
+                        for i in p:
+                            int_values += " " + str(i)
+                        int_values += " </p>"
+                        self.writel(S_GEOM, 4, int_values)
 
             self.writel(S_GEOM, 3, '</' + prim_type + '>')
 
@@ -1726,7 +1818,7 @@ class DaeExporter:
                             else:
                                 parent_posebone = node.pose.bones[bone.parent.name]
                             parent_invisible = False
-
+                            
                             for i in range(3):
                                 if (parent_posebone.scale[i] == 0.0):
                                     parent_invisible = True
