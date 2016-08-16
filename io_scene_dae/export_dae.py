@@ -189,19 +189,15 @@ class DaeExporter:
                 # folder
                 img_tmp_path = image.filepath
                 if img_tmp_path.lower().endswith(bpy.path.extensions_image):
-                    image.filepath =
-                        os.path.join(basedir, os.path.basename(img_tmp_path))
+                    image.filepath = os.path.join(basedir, os.path.basename(img_tmp_path))
                 else:
-                    image.filepath =
-                        os.path.join(basedir, "{}.png".format(image.name))
+                    image.filepath = os.path.join(basedir, "{}.png".format(image.name))
 
-                dstfile =
-                    os.path.join(basedir, os.path.basename(image.filepath))
+                dstfile = os.path.join(basedir, os.path.basename(image.filepath))
 
                 if not os.path.isfile(dstfile):
                     image.save()
-                imgpath =
-                    os.path.join("images", os.path.basename(image.filepath))
+                imgpath = os.path.join("images", os.path.basename(image.filepath))
                 image.filepath = img_tmp_path
 
         else:
@@ -396,11 +392,6 @@ class DaeExporter:
         self.material_cache[material] = matid
         return matid
 
-    basis_vertex_cache=[]
-    basis_loops_cache=[]
-    basis_uv_layers_cache=[]
-    basis_vertex_colors=[]
-    basis_vertex_map={}
         
     def export_mesh(self, node, armature=None, skeyindex=-1, skel_source=None,
                     custom_name=None):
@@ -1999,7 +1990,10 @@ class DaeExporter:
     __slots__ = ("operator", "scene", "last_id", "scene_name", "sections",
                  "path", "mesh_cache", "curve_cache", "material_cache",
                  "image_cache", "skeleton_info", "config", "valid_nodes",
-                 "armature_for_morph", "used_bones", "wrongvtx_report")
+                 "armature_for_morph", "used_bones", "wrongvtx_report",
+                 "skeletons", "action_constraints", "basis_vertex_cache",
+                 "basis_loops_cache", "basis_uv_layers_cache", "basis_vertex_colors",
+                 "basis_vertex_map")
 
     def __init__(self, path, kwargs, operator):
         self.operator = operator
@@ -2018,6 +2012,13 @@ class DaeExporter:
         self.armature_for_morph = {}
         self.used_bones = []
         self.wrongvtx_report = False
+        self.skeletons = []
+        self.action_constraints = []
+        self.basis_vertex_cache=[]
+        self.basis_loops_cache=[]
+        self.basis_uv_layers_cache=[]
+        self.basis_vertex_colors=[]
+        self.basis_vertex_map={}
 
 
 def save(operator, context, filepath="", use_selection=False, **kwargs):
